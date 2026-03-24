@@ -37,5 +37,5 @@ class OcrJobOutput(BaseModel):
     ok: bool
     documentId: str
     pages: List[OcrPage]
-    provider: str = "olmocr"
+    provider: str = "olmocr-transformers"
     elapsedMs: int

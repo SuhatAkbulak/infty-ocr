@@ -1,28 +1,42 @@
 # infty-ocr (Runpod Serverless Worker)
 
-`infty-ocr` is a [Runpod](https://www.runpod.io/) Serverless worker that runs **[olmOCR](https://github.com/allenai/olmocr)** on top of the official Docker image [`alleninstituteforai/olmocr`](https://hub.docker.com/r/alleninstituteforai/olmocr). It accepts a public **`sourceUrl`** (PDF or image) or **S3** keys, runs the `olmocr` CLI inside the container, and returns extracted text.
+`infty-ocr` is a [Runpod](https://www.runpod.io/) Serverless worker that runs **[olmOCR](https://github.com/allenai/olmocr)**-style **Hugging Face** inference (`Qwen2_5_VLForConditionalGeneration` + `build_no_anchoring_v4_yaml_prompt`). Docker tabanı **[`pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime`](https://hub.docker.com/r/pytorch/pytorch)** (Dockerfile’da `BASE_IMAGE` ile değiştirilebilir). **Runpod** tarafında şablonların CUDA hattı **12.8.x** ile uyumlu; **CUDA 12.8** container + güncel host driver bu platformda doğru hizadır. `olmocr` **`pip`** ile kurulur. **`sourceUrl`** veya **S3**. **CLI / vLLM yok.**
 
 ## What it does
 
-- **V1 – HTTP source:** Download a file from `sourceUrl`, detect type (PDF / PNG / JPEG / WebP), run `olmocr`, read Markdown output from the workspace.
-- **S3 batch (optional):** List image keys under a prefix, process a slice using `batch.index` and `batch.size`.
-- **Mock mode:** Skip real OCR for cheap local smoke tests (`OLMOCR_MOCK=true`).
+- **HTTP `sourceUrl`:** Download PDF / PNG / JPEG / WebP, run in-process inference, return text (multi-page PDFs are rendered per page and concatenated).
+- **S3 batch:** List keys under a prefix, process a slice with `batch.index` and `batch.size`.
+- **Mock:** `OLMOCR_MOCK=true` skips model I/O for cheap smoke tests.
 
-> **Callback** fields exist in the request schema for future use; the worker does not POST to a webhook yet.
+> **Callback** in the schema is reserved; the worker does not POST to webhooks yet.
 
 ## Project layout
 
 | Path | Role |
 |------|------|
-| `handler.py` | Runpod serverless entry (`runpod.serverless.start`) |
-| `schemas.py` | Pydantic request/response models |
-| `services/ocr_pipeline.py` | Download → `olmocr` subprocess → collect output |
-| `services/url_io.py` | HTTP download, size limit, magic-byte type check |
-| `services/s3_io.py` | S3 list + download helpers |
-| `Dockerfile` | `FROM alleninstituteforai/olmocr:latest` + app code |
-| `test_input.json` | Local Runpod SDK test payload |
+| `handler.py` | Runpod entry (`runpod.serverless.start`) |
+| `schemas.py` | Pydantic models |
+| `services/ocr_pipeline.py` | Download → `run_olmocr_transformers_on_file` |
+| `services/olmocr_transformers_backend.py` | HF model, `render_pdf_to_base64png`, YAML prompt |
+| `services/url_io.py` | HTTP download, limits, magic-byte typing |
+| `services/s3_io.py` | S3 helpers |
+| `Dockerfile` | `pytorch/pytorch` CUDA 12.8 runtime + `poppler-utils` + `pip` |
+| `test_input.json` | Local SDK test payload |
+| `tests/test_smoke.py` | Mock smoke tests (no GPU) |
 
-## Request payload (Runpod `input`)
+## Test (sadece pipeline / handler, GPU yok)
+
+`infty-ocr` klasöründe:
+
+```bash
+pip install -r requirements.txt
+export OLMOCR_MOCK=true
+python -m unittest tests.test_smoke -v
+```
+
+Gerçek model + CUDA için container veya Runpod’da `OLMOCR_MOCK=false` kullan.
+
+## Request payload (`input`)
 
 ```json
 {
@@ -36,48 +50,17 @@
 }
 ```
 
-Either **`sourceUrl`** or **`s3`** must be provided (`s3` is optional when `sourceUrl` is set).
+Either **`sourceUrl`** or **`s3`** is required.
 
-**S3 variant:**
-
-```json
-{
-  "input": {
-    "operation": "submit_ocr_job",
-    "documentId": "sha256:abc123",
-    "s3": {
-      "bucket": "my-bucket",
-      "prefix": "temps-jobs/abc123/pages/",
-      "region": "eu-central-1"
-    },
-    "lang": "tur+eng",
-    "batch": { "size": 10, "index": 0 }
-  }
-}
-```
-
-## Response shape
-
-Successful handler output (shape from `OcrJobOutput`):
+## Response
 
 ```json
 {
   "ok": true,
   "documentId": "sha256:abc123",
-  "pages": [
-    { "pageNo": 1, "text": "..." }
-  ],
-  "provider": "olmocr",
+  "pages": [{ "pageNo": 1, "text": "..." }],
+  "provider": "olmocr-transformers",
   "elapsedMs": 1234
-}
-```
-
-On failure, the handler may return:
-
-```json
-{
-  "ok": false,
-  "error": "error message"
 }
 ```
 
@@ -85,66 +68,44 @@ On failure, the handler may return:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `OLMOCR_MOCK` | `true` | If `true`, no download/OCR; returns placeholder text. Set `false` in production. |
-| `OLMOCR_TIMEOUT_MS` | `120000` | Subprocess timeout for `olmocr` (ms). |
-| `OLMOCR_CMD_TEMPLATE` | see below | Shell command template; placeholders: `{workspace}`, `{input}`, `{lang}`. |
-| `OCR_DOWNLOAD_TIMEOUT_MS` | `30000` | HTTP download timeout for `sourceUrl` (ms). |
-| `OCR_MAX_SOURCE_MB` | `50` | Max download size for `sourceUrl`. |
-| `AWS_REGION` | — | Required for S3 path. |
-| `AWS_ACCESS_KEY_ID` | — | Required for S3 path. |
-| `AWS_SECRET_ACCESS_KEY` | — | Required for S3 path. |
+| `OLMOCR_MOCK` | `true` | `false` in production. |
+| `OLMOCR_MODEL_ID` | `allenai/olmOCR-2-7B-1025-FP8` | [Model kartı](https://huggingface.co/allenai/olmOCR-2-7B-1025-FP8) ile aynı id; FP8 / `compressed-tensors` ağırlıklar. |
+| `OLMOCR_PROCESSOR_ID` | `Qwen/Qwen2.5-VL-7B-Instruct` | Karttaki “Manual Prompting” ile aynı processor. |
+| `OLMOCR_MAX_NEW_TOKENS` | `8192` | `generate` cap per page/image. |
+| `OLMOCR_RENDER_LONGEST_DIM` | `1288` | PDF rasterization longest side (px). |
+| `OLMOCR_TEMPERATURE` | `0.1` | Sampling temperature. |
+| `OLMOCR_TORCH_DTYPE` | — | Optional, e.g. `bfloat16` for `from_pretrained`. |
+| `OCR_DOWNLOAD_TIMEOUT_MS` | `30000` | `sourceUrl` download timeout. |
+| `OCR_MAX_SOURCE_MB` | `50` | Max download size. |
+| `AWS_*` | — | Required for S3 path. |
 
-Default command template:
+## Runpod: disk, GPU, CUDA
 
-```text
-olmocr "{workspace}" --markdown --pdfs "{input}" --workers 1 --pages_per_group 1
-```
+- **Disk:** HF cache + weights — **≥50 GB** (80–100 GB rahat).
+- **GPU:** 7B VLM için **L40 / L40S** sınıfı; mümkünse **GPU başına tek ağır iş**.
+- **CUDA / imaj:** Worker özel Docker kullanır; Runpod host’u **NVIDIA driver + container toolkit** ile CUDA kütüphanelerini bağlar. **12.8 runtime** tabanı, [Runpod’un CUDA 12.8 şablon hattı](https://github.com/runpod/containers/blob/main/official-templates/shared/versions.hcl) ile aynı majör hat. Eski **12.4** imajları çoğu node’da çalışır (12.x uyumu) ama **12.8 pin** daha tutarlıdır.
+- **Build:** `docker build --platform linux/amd64 ...` (Runpod tipik arch).
 
-Copy `.env.example` to `.env` for local reference (do not commit secrets).
+## Local run
 
-## Local development
+**Python 3.11+** zorunlu (`olmocr>=0.4` PyPI sınırlaması). GPU ile gerçek OCR için CUDA’lı PyTorch ortamı gerekir (macOS’ta genelde sadece mock / CPU denemesi).
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+python3.11 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python handler.py
+OLMOCR_MOCK=true python handler.py   # veya: python -m unittest discover -s tests -v
 ```
 
-With `test_input.json` present, the Runpod SDK runs one local job and exits.
+Runpod üretimde **`OLMOCR_MOCK=false`**; ilk çalıştırmada model indirme için `HF_TOKEN` (özel/gated repo yoksa opsiyonel) ve bol disk.
 
-## Docker image
-
-- Base: **`alleninstituteforai/olmocr:latest`** (large; includes the olmOCR stack).
-- Build context: this directory (`runpod-workers/infty-ocr`).
-- Start command: `python handler.py` (set in `Dockerfile` `CMD`).
-
-Build locally (amd64 for Runpod):
+## Docker
 
 ```bash
 docker build --platform linux/amd64 -t your-registry/infty-ocr:0.1.0 .
 ```
 
-## Deploying on Runpod
-
-1. Push this repo to GitHub (or build and push the image to Docker Hub).
-2. Create a **Serverless** endpoint:
-   - **Queue** workers
-   - **GPU** suitable for olmOCR (see [olmocr docs](https://github.com/allenai/olmocr))
-3. Point Runpod at:
-   - your **Docker image**, or  
-   - **GitHub** build with `Dockerfile` path = `Dockerfile` and build context = this folder.
-4. Set environment variables (at minimum `OLMOCR_MOCK=false` and AWS creds if using S3).
-
-See also `RUNPOD_SERVERLESS_TEMPLATE_STEPS.md` in this repo for a step-by-step checklist.
-
-## Roadmap
-
-- Manifest-based page batching and stronger idempotency  
-- Signed webhook / HMAC callback delivery  
-- Optional remote inference (`--server`) for a smaller worker image  
-- Richer metadata (confidence, raw model output) in responses
+Deploy: Serverless endpoint, GPU template, `OLMOCR_MOCK=false`, large enough disk, image from this `Dockerfile`.
 
 ## License
 
-Application code in this worker follows your repo’s license. **olmOCR** is [Apache-2.0](https://github.com/allenai/olmocr/blob/main/LICENSE).
+Worker code: your repo license. **olmOCR** is [Apache-2.0](https://github.com/allenai/olmocr/blob/main/LICENSE).
