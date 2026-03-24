@@ -1,0 +1,13 @@
+{
+  "input": {
+    "operation": "submit_ocr_job",
+    "documentId": "sha256:s3-smoke-1",
+    "s3": {
+      "bucket": "SENIN_BUCKET",
+      "prefix": "ocr-samples/tek-sayfa/",
+      "region": "eu-central-1"
+    },
+    "lang": "tur+eng",
+    "batch": { "size": 1, "index": 0 }
+  }
+}

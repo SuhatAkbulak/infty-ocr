@@ -106,6 +106,8 @@ docker build --platform linux/amd64 -t your-registry/infty-ocr:0.1.0 .
 
 Deploy: Serverless endpoint, GPU template, `OLMOCR_MOCK=false`, large enough disk, image from this `Dockerfile`.
 
+**Runpod API test:** `examples/runpod_runsync.json` gövdesi + `examples/runpod_curl_runsync.sh` (`RUNPOD_ENDPOINT_ID`, `RUNPOD_API_KEY` export et).
+
 ## License
 
 Worker code: your repo license. **olmOCR** is [Apache-2.0](https://github.com/allenai/olmocr/blob/main/LICENSE).

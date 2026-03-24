@@ -1,12 +1,9 @@
 {
   "input": {
     "operation": "submit_ocr_job",
-    "documentId": "sha256:test123",
+    "documentId": "sha256:runpod-smoke-1",
     "sourceUrl": "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf",
     "lang": "tur+eng",
-    "batch": {
-      "size": 1,
-      "index": 0
-    }
+    "batch": { "size": 1, "index": 0 }
   }
 }

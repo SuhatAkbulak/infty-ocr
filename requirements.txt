@@ -4,6 +4,8 @@ boto3==1.39.15
 pydantic==2.11.7
 requests==2.32.3
 # HF manual path: https://huggingface.co/allenai/olmOCR-2-7B-1025-FP8 (olmocr>=0.4.0)
+transformers>=4.51.0
+huggingface_hub>=0.26.0
 olmocr>=0.4.0
 accelerate
 sentencepiece
