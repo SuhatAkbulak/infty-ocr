@@ -11,8 +11,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN python3 -m pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["python", "handler.py"]
+# Base image may ship a broken /usr/bin/python on some platforms; Runpod is linux/amd64.
+# Clear inherited ENTRYPOINT so Serverless runs our process directly.
+ENTRYPOINT []
+CMD ["python3", "-u", "handler.py"]
