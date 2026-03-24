@@ -1,0 +1,12 @@
+{
+  "input": {
+    "operation": "submit_ocr_job",
+    "documentId": "sha256:test123",
+    "sourceUrl": "https://example.com/sample.pdf",
+    "lang": "tur+eng",
+    "batch": {
+      "size": 1,
+      "index": 0
+    }
+  }
+}

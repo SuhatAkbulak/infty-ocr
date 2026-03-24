@@ -1,0 +1,4 @@
+runpod==1.7.7
+boto3==1.39.15
+pydantic==2.11.7
+requests==2.32.3
