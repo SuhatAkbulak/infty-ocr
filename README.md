@@ -69,6 +69,7 @@ Either **`sourceUrl`** or **`s3`** is required.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `OLMOCR_MOCK` | `true` | `false` in production. |
+| `HF_TOKEN` | — | **Önerilir.** Ücretsiz [HF access token](https://huggingface.co/settings/tokens); uç istek / model indirmede daha yüksek limit, logtaki “unauthenticated” uyarısını kaldırır. Runpod endpoint env: `HF_TOKEN=hf_...`. |
 | `OLMOCR_MODEL_ID` | `allenai/olmOCR-2-7B-1025-FP8` | [Model kartı](https://huggingface.co/allenai/olmOCR-2-7B-1025-FP8) ile aynı id; FP8 / `compressed-tensors` ağırlıklar. |
 | `OLMOCR_PROCESSOR_ID` | `Qwen/Qwen2.5-VL-7B-Instruct` | Karttaki “Manual Prompting” ile aynı processor. |
 | `OLMOCR_MAX_NEW_TOKENS` | `8192` | `generate` cap per page/image. |
@@ -96,7 +97,7 @@ pip install -r requirements.txt
 OLMOCR_MOCK=true python handler.py   # veya: python -m unittest discover -s tests -v
 ```
 
-Runpod üretimde **`OLMOCR_MOCK=false`**; ilk çalıştırmada model indirme için `HF_TOKEN` (özel/gated repo yoksa opsiyonel) ve bol disk.
+Runpod üretimde **`OLMOCR_MOCK=false`**; ilk çalıştırmada model indirme için `HF_TOKEN` (özel/gated repo yoksa opsiyonel) ve bol disk. **`allenai/olmOCR-2-7B-1025-FP8`** FP8 ağırlıklar için imajda **`compressed-tensors`** kurulu olmalı (`requirements.txt`).
 
 ## Docker
 
